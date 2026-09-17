@@ -74,6 +74,8 @@ Each invocation writes a unique timestamped run directory under `USWDS_AT_OUTPUT
 
 The build hash is a SHA-256 over sorted relative-file/hash pairs. Iframe and loaded resource bytes are compared to the static server before AT execution and after a successful scenario; build bytes must remain unchanged during the run. This is local provenance, not a signed CI attestation or protection against a malicious process able to rewrite both evidence and hashes. A release integration must bind source/build identity to trusted CI metadata.
 
+Safari may request `/favicon.ico` without a declared icon. If that optional file is absent from the build and the server returns 404, the resource record explicitly stores that absence. A supplied icon, every other resource, external origin, and redirect still undergoes strict validation.
+
 For an existing hybrid negative control, also set `USWDS_AT_CONTROL_MANIFEST` to its `control.json`. For example, `audits/2026-09-16/backlog-next/pilot/controls/modal-base/control.json` records runtime overrides from `2af5c54c3e3140cc44cefddf3444132a071405eb` for modal and header JS. Keep `USWDS_AT_REVISION` set to the independently established fixture-source revision, not that runtime-only ref. The output preserves the complete overlay manifest, its digest and its explicit hybrid interpretation. A copied control build is not a clean checkout of the override SHA; unknown fixture provenance must be resolved before claiming a passing comparison.
 
 - `passed`, exit 0: all six scoped behavior assertions, three capture checkpoints, identity checks and cleanup succeeded.

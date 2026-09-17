@@ -94,6 +94,17 @@ async function verifyServedFiles(cfg, urls) {
     const file = path.resolve(cfg.buildDir, `.${decodeURIComponent(url.pathname)}`);
     requireEvidence(file.startsWith(`${cfg.buildDir}${path.sep}`), "Resource path leaves the build directory");
     const response = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: "error" });
+    // Safari probes this optional icon even when the fixture declares none.
+    // Record an absent file and matching 404; every supplied build file and
+    // every other resource still requires a successful byte comparison.
+    if (url.pathname === "/favicon.ico" && response.status === 404) {
+      let absent = false;
+      try { await fs.lstat(file); } catch (error) { if (error.code === "ENOENT") absent = true; else throw error; }
+      if (absent) {
+        records.push({ pathname: url.pathname, status: 404, optionalIconAbsent: true });
+        continue;
+      }
+    }
     requireEvidence(response.ok, `Resource fetch failed: ${url.pathname}`);
     const served = sha256(Buffer.from(await response.arrayBuffer()));
     requireEvidence(served === sha256(await fs.readFile(file)), `Served resource differs from declared build: ${url.pathname}`);

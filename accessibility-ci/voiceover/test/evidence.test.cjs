@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
+const http = require("node:http");
 const path = require("node:path");
 const { SCENARIO, STEP_IDS, ASSERTION_IDS, GUIDE_VERSION, CAPTURE_POLICY, EvidenceError, ProductFailure,
   validateObservation, assessObservation, errorRecord, evaluateResult } = require("../evidence.cjs");
@@ -133,6 +134,20 @@ test("build digest changes when bytes change, regardless of file count", async t
 test("served-resource verifier rejects another origin before making a request", async () => {
   await assert.rejects(verifyServedFiles({ story: "http://127.0.0.1:8774/", buildDir: "/tmp/build" },
     ["https://example.com/iframe.html"]), /external resource/);
+});
+
+test("an absent optional favicon records its 404 while required or supplied resources stay strict", async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "uswds-at-resource-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const server = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const cfg = { story: `http://127.0.0.1:${server.address().port}/iframe.html`, buildDir: directory };
+  assert.deepEqual(await verifyServedFiles(cfg, ["/favicon.ico"]),
+    [{ pathname: "/favicon.ico", status: 404, optionalIconAbsent: true }]);
+  await assert.rejects(verifyServedFiles(cfg, ["/required.js"]), /Resource fetch failed/);
+  await fs.writeFile(path.join(directory, "favicon.ico"), "supplied build bytes");
+  await assert.rejects(verifyServedFiles(cfg, ["/favicon.ico"]), /Resource fetch failed/);
 });
 
 test("hybrid control preserves runtime-only provenance and rejects unpinned overlays", async t => {
