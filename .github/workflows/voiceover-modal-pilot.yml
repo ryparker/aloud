@@ -30,13 +30,17 @@ jobs:
       FIXTURE_REVISION: 351b20c283528bcc88e442f42cbbc0edcafd4be5
       CONTROL_REVISION: 2af5c54c3e3140cc44cefddf3444132a071405eb
       NODE_OPTIONS: --max-old-space-size=6144
-      BUILD_EVIDENCE: ${{ runner.temp }}/fixture-evidence
     outputs:
       corrected_id: ${{ steps.corrected.outputs.artifact-id }}
       broken_id: ${{ steps.broken.outputs.artifact-id }}
       corrected_sha256: ${{ steps.digests.outputs.corrected_sha256 }}
       broken_sha256: ${{ steps.digests.outputs.broken_sha256 }}
     steps:
+      - name: Initialize build evidence paths on the runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/fixture-evidence"
+          printf 'BUILD_EVIDENCE=%s/fixture-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.sha }}
@@ -143,18 +147,20 @@ jobs:
       run:
         shell: bash
     env:
-      CI_EVIDENCE: ${{ runner.temp }}/voiceover-evidence
-      USWDS_AT_OUTPUT_DIR: ${{ runner.temp }}/voiceover-evidence/calibration
-      USWDS_AT_CORRECTED_ARTIFACT: ${{ runner.temp }}/corrected-fixture
-      USWDS_AT_BROKEN_ARTIFACT: ${{ runner.temp }}/broken-fixture
       USWDS_AT_CORRECTED_SHA256: ${{ needs.build-fixtures.outputs.corrected_sha256 }}
       USWDS_AT_BROKEN_SHA256: ${{ needs.build-fixtures.outputs.broken_sha256 }}
-      USWDS_AT_DEPENDENCY_ROOT: ${{ runner.temp }}/voiceover-deps
-      GUIDEPUP_SCREEN_READERS_PATH: ${{ runner.temp }}/voiceover-assets
       USWDS_SAFARI_DRIVER: http://127.0.0.1:8773
     steps:
       - name: Require and identify the disposable desktop
         run: |
+          export CI_EVIDENCE="$RUNNER_TEMP/voiceover-evidence"
+          printf '%s\n' \
+            "CI_EVIDENCE=$CI_EVIDENCE" \
+            "USWDS_AT_OUTPUT_DIR=$CI_EVIDENCE/calibration" \
+            "USWDS_AT_CORRECTED_ARTIFACT=$RUNNER_TEMP/corrected-fixture" \
+            "USWDS_AT_BROKEN_ARTIFACT=$RUNNER_TEMP/broken-fixture" \
+            "USWDS_AT_DEPENDENCY_ROOT=$RUNNER_TEMP/voiceover-deps" \
+            "GUIDEPUP_SCREEN_READERS_PATH=$RUNNER_TEMP/voiceover-assets" >> "$GITHUB_ENV"
           mkdir -p "$CI_EVIDENCE"
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$RUNNER_OS" = macOS
