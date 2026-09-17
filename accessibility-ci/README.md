@@ -23,7 +23,13 @@ The native reader receives an explicitly assisted starting position. The scenari
 
 Artifacts retain build inputs and hashes, dependency/profile information, actual OS/browser/reader versions, raw returned caption data, screenshots, actions, failures and cleanup state. The final calibration result and the CI job must both be inspected; a missing result cannot pass.
 
-Hosted startup currently tests an explicit compatibility patch to Guidepup 0.34.0. It moves the existing native process/AppleScript readiness check before VoiceOver activation; no product assertion changes. The installer checks the original and patched file hashes, and every replay verifies and records its patch manifest. This is an experimental patched dependency, not an upstream Guidepup release or a proven resolution until native execution succeeds.
+Hosted startup currently tests an explicit compatibility patch to Guidepup 0.34.0. It moves the existing native process/AppleScript readiness check before VoiceOver activation; no product assertion changes. The installer checks the original and patched file hashes, and every replay verifies and records its patch manifest. This is an experimental patched dependency, not an upstream Guidepup release. The recorded run below reached successful startup; broader reliability remains unproven.
+
+## Observed hosted result
+
+[Run 35288143228](https://github.com/ryparker/aloud/actions/runs/35288143228), tooling commit `b7bf12da7c8cb72270e533557b91aee7583f88a4`: all 69 tooling tests and both fixture builds passed. VoiceOver started for both fixtures, captured the opener phrase and activated the modal. Both attempts then remained inconclusive: modal-open speech was empty through 100 SDK polls. Cleanup succeeded, and teardown and repetitions did not run. No complete corrected scenario has passed.
+
+The next investigation must distinguish native modal speech from the caption interface. Preserve the original empty activation observation. Any explicit re-read belongs in a separate diagnostic record and cannot substitute for an automatic announcement or make the original result pass.
 
 ## Local checks
 
