@@ -201,6 +201,13 @@ jobs:
           cp node_modules/@guidepup/guidepup/manifest.json "$CI_EVIDENCE/guidepup-manifest.json"
           cp package-lock.json "$CI_EVIDENCE/tool-package-lock.json"
 
+      - name: Apply the recorded VoiceOver startup readiness experiment
+        run: |
+          node accessibility-ci/voiceover/guidepup-startup-patch.cjs \
+            --dependency-root "$USWDS_AT_DEPENDENCY_ROOT" \
+            --manifest "$CI_EVIDENCE/guidepup-startup-patch.json"
+          printf 'USWDS_GUIDEPUP_PATCH_MANIFEST=%s/guidepup-startup-patch.json\n' "$CI_EVIDENCE" >> "$GITHUB_ENV"
+
       - name: Configure the ephemeral desktop
         timeout-minutes: 5
         run: |
@@ -213,12 +220,34 @@ jobs:
         timeout-minutes: 15
         env:
           USWDS_AT_DEDICATED_SESSION: '1'
+          DEBUG: guidepup*
         run: |
           /usr/bin/safaridriver --port 8773 > "$CI_EVIDENCE/safaridriver.log" 2>&1 &
           driver_pid=$!
           trap 'kill "$driver_pid" 2>/dev/null || true' EXIT
           curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8773/status > "$CI_EVIDENCE/driver-status.json"
           node accessibility-ci/voiceover/calibrate.cjs 2>&1 | tee "$CI_EVIDENCE/calibration.log"
+
+      - name: Collect native failure diagnostics
+        if: ${{ failure() }}
+        timeout-minutes: 2
+        run: |
+          /usr/bin/log show --last 10m --style compact --predicate 'process == "VoiceOver" OR process == "VoiceOverStarter" OR process == "VoiceOverUtility"' > "$CI_EVIDENCE/voiceover-system.log" 2>&1 || true
+          /usr/sbin/system_profiler SPAudioDataType > "$CI_EVIDENCE/audio-devices.txt" 2>&1 || true
+          /usr/bin/screencapture -x "$CI_EVIDENCE/desktop-failure.png" > "$CI_EVIDENCE/screenshot.log" 2>&1 || true
+          node <<'NODE'
+          const fs = require('node:fs');
+          const os = require('node:os');
+          const path = require('node:path');
+          const destination = path.join(process.env.CI_EVIDENCE, 'crash-reports');
+          fs.mkdirSync(destination, {recursive:true});
+          for (const directory of [path.join(os.homedir(), 'Library/Logs/DiagnosticReports'), '/Library/Logs/DiagnosticReports']) {
+            if (!fs.existsSync(directory)) continue;
+            for (const name of fs.readdirSync(directory).filter(name => /^VoiceOver.*\.(ips|crash)$/.test(name))) {
+              fs.copyFileSync(path.join(directory, name), path.join(destination, name));
+            }
+          }
+          NODE
 
       - name: Retain native evidence after success or failure
         if: ${{ always() }}

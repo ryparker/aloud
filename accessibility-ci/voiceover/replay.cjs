@@ -8,6 +8,7 @@ const { randomUUID } = require("node:crypto");
 const { SCENARIO, GUIDE_VERSION, CAPTURE_POLICY, requireEvidence, productAssert, sha256,
   assessObservation, errorRecord, evaluateResult } = require("./evidence.cjs");
 const { collectCommandCapture } = require("./capture.cjs");
+const { verifyInstalledStartup } = require("./guidepup-startup-patch.cjs");
 
 const exec = promisify(execFile);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -28,11 +29,13 @@ function config(env = process.env) {
   requireEvidence(/^[a-f0-9]{40}$/.test(env.USWDS_AT_REVISION || ""), "Set USWDS_AT_REVISION to the tested full commit SHA");
   requireEvidence(path.isAbsolute(env.GUIDEPUP_SCREEN_READERS_PATH || ""), "Set absolute GUIDEPUP_SCREEN_READERS_PATH to existing test profiles");
   requireEvidence(path.isAbsolute(env.USWDS_AT_OUTPUT_DIR || ""), "Set absolute USWDS_AT_OUTPUT_DIR outside this source directory");
+  requireEvidence(!env.USWDS_GUIDEPUP_PATCH_MANIFEST || path.isAbsolute(env.USWDS_GUIDEPUP_PATCH_MANIFEST), "Startup patch manifest must be absolute");
   const outputDir = path.resolve(env.USWDS_AT_OUTPUT_DIR);
   requireEvidence(outputDir !== __dirname && !outputDir.startsWith(`${__dirname}${path.sep}`), "Run outputs must be outside the source directory");
   return { story, driver, buildDir: path.resolve(env.USWDS_AT_BUILD_DIR), revision: env.USWDS_AT_REVISION,
     assets: path.resolve(env.GUIDEPUP_SCREEN_READERS_PATH), outputDir,
     dedicatedSession: env.USWDS_AT_DEDICATED_SESSION === "1",
+    patchManifest: env.USWDS_GUIDEPUP_PATCH_MANIFEST || null,
     controlManifest: env.USWDS_AT_CONTROL_MANIFEST ? path.resolve(env.USWDS_AT_CONTROL_MANIFEST) : null,
     dependencyRoot: env.USWDS_AT_DEPENDENCY_ROOT ? path.resolve(env.USWDS_AT_DEPENDENCY_ROOT) : __dirname };
 }
@@ -118,6 +121,7 @@ async function preflight(cfg) {
   const load = createRequire(path.join(cfg.dependencyRoot, "package.json"));
   const dependency = load("@guidepup/guidepup/package.json");
   requireEvidence(dependency.version === GUIDE_VERSION, `Expected Guidepup ${GUIDE_VERSION}, found ${dependency.version}`);
+  const guidepupCompatibilityPatch = await verifyInstalledStartup(cfg.dependencyRoot, cfg.patchManifest);
   requireEvidence((await fs.stat(cfg.assets)).isDirectory(), "Guidepup profile directory is missing");
   const status = await request(`${cfg.driver}/status`);
   requireEvidence(status && status.ready !== false, "Safari driver is not ready for a new session");
@@ -126,7 +130,7 @@ async function preflight(cfg) {
   const initialState = await runtimeState();
   requireEvidence(!initialState.voiceOverRunning, "VoiceOver is already running; use a dedicated test session with VoiceOver initially off");
   requireEvidence(!initialState.profileMounted, "A Guidepup profile volume is already mounted; resolve the existing test session first");
-  return { ready: true, mode: "preflight-only", guidepup: dependency.version, platform: process.platform,
+  return { ready: true, mode: "preflight-only", guidepup: dependency.version, guidepupCompatibilityPatch, platform: process.platform,
     osVersion: await command("/usr/bin/sw_vers", ["-productVersion"]), osBuild: await command("/usr/bin/sw_vers", ["-buildVersion"]),
     kernel: os.release(), arch: process.arch, node: process.version, driver: status, build, served, initialState,
     control: await controlMetadata(cfg.controlManifest),
@@ -215,7 +219,7 @@ async function replay(cfg) {
       kernel: info.kernel, arch: info.arch, node: info.node, guidepup: info.guidepup,
       locale: Intl.DateTimeFormat().resolvedOptions().locale, profilePath: cfg.assets,
       profileDigest: (await buildDigest(cfg.assets)).sha256, settings: "Guidepup pinned test profile; no runtime override",
-      zoom: "not explicitly set or evaluated by this pilot" };
+      zoom: "not explicitly set or evaluated by this pilot", guidepupCompatibilityPatch: info.guidepupCompatibilityPatch };
     result.build = { ...info.build, revision: cfg.revision, source: "operator-declared SHA with local/HTTP byte checks", servedFilesVerified: false };
     if (info.control) {
       result.build.control = info.control;

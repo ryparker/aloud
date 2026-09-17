@@ -23,6 +23,8 @@ The native reader receives an explicitly assisted starting position. The scenari
 
 Artifacts retain build inputs and hashes, dependency/profile information, actual OS/browser/reader versions, raw returned caption data, screenshots, actions, failures and cleanup state. The final calibration result and the CI job must both be inspected; a missing result cannot pass.
 
+Hosted startup currently tests an explicit compatibility patch to Guidepup 0.34.0. It moves the existing native process/AppleScript readiness check before VoiceOver activation; no product assertion changes. The installer checks the original and patched file hashes, and every replay verifies and records its patch manifest. This is an experimental patched dependency, not an upstream Guidepup release or a proven resolution until native execution succeeds.
+
 ## Local checks
 
 ```sh
