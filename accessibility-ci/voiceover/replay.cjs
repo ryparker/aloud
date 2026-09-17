@@ -218,7 +218,7 @@ async function replay(cfg) {
     result.environment = { platform: info.platform, osVersion: info.osVersion, osBuild: info.osBuild,
       kernel: info.kernel, arch: info.arch, node: info.node, guidepup: info.guidepup,
       locale: Intl.DateTimeFormat().resolvedOptions().locale, profilePath: cfg.assets,
-      profileDigest: (await buildDigest(cfg.assets)).sha256, settings: "Guidepup pinned test profile; no runtime override",
+      profileDigest: (await buildDigest(cfg.assets)).sha256, activationMethod: "voiceover-keyboard-default-action", settings: "Guidepup pinned test profile; no runtime override",
       zoom: "not explicitly set or evaluated by this pilot", guidepupCompatibilityPatch: info.guidepupCompatibilityPatch };
     result.build = { ...info.build, revision: cfg.revision, source: "operator-declared SHA with local/HTTP byte checks", servedFilesVerified: false };
     if (info.control) {
@@ -267,7 +267,9 @@ async function replay(cfg) {
     const sentinel = await capture("opener-sentinel", () => voiceOver.perform(voiceOver.keyboardCommands.moveCursorToKeyboardFocus));
     requireEvidence(sentinel.itemText.includes(openerLabel) && sentinel.speech.some(value => value.includes(openerLabel)), "Capture sentinel did not identify and speak the modal opener");
     stage = "Open modal";
-    await capture("modal-open", () => voiceOver.act());
+    await capture("modal-open", () => recordAction("assistive-technology-keyboard",
+      "Activate the opener with VoiceOver Control-Option-Space (performDefaultActionForItem)",
+      () => voiceOver.perform(voiceOver.keyboardCommands.performDefaultActionForItem)));
     stage = "Teardown and heading navigation";
     await recordAction("fixture-lifecycle-js", "Simulate application unmount with window.uswdsTest.teardown()", () => script("window.uswdsTest.teardown();"));
     await recordAction("assisted-js-focus", "Position keyboard focus on Previous page action after teardown; not an assertion of natural focus recovery", () => script("document.getElementById('test-before').focus();"));
