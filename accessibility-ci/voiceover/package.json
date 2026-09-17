@@ -1,0 +1,14 @@
+{
+  "name": "uswds-voiceover-regression",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A scoped Safari and VoiceOver modal regression with explicit evidence provenance.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "preflight": "node replay.cjs --preflight",
+    "replay": "node replay.cjs"
+  },
+  "peerDependencies": { "@guidepup/guidepup": "0.34.0" },
+  "peerDependenciesMeta": { "@guidepup/guidepup": { "optional": true } }
+}

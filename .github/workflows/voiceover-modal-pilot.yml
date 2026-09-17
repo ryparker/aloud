@@ -1,0 +1,224 @@
+name: USWDS modal VoiceOver calibration
+
+on:
+  push:
+    branches: [ci/uswds-voiceover-pilot]
+    paths:
+      - .github/workflows/voiceover-modal-pilot.yml
+      - accessibility-ci/**/*.cjs
+      - accessibility-ci/**/package.json
+      - accessibility-ci/**/package-lock.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: uswds-voiceover-calibration-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build-fixtures:
+    if: github.repository == 'ryparker/aloud'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      FIXTURE_REVISION: 351b20c283528bcc88e442f42cbbc0edcafd4be5
+      CONTROL_REVISION: 2af5c54c3e3140cc44cefddf3444132a071405eb
+      NODE_OPTIONS: --max-old-space-size=6144
+      BUILD_EVIDENCE: ${{ runner.temp }}/fixture-evidence
+    outputs:
+      corrected_id: ${{ steps.corrected.outputs.artifact-id }}
+      broken_id: ${{ steps.broken.outputs.artifact-id }}
+      corrected_sha256: ${{ steps.digests.outputs.corrected_sha256 }}
+      broken_sha256: ${{ steps.digests.outputs.broken_sha256 }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: accessibility-ci
+
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: uswds/uswds
+          ref: 351b20c283528bcc88e442f42cbbc0edcafd4be5
+          path: fixture-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check tooling and pin both fixture inputs
+        run: |
+          mkdir -p "$BUILD_EVIDENCE"
+          node --test accessibility-ci/voiceover/test/*.test.cjs accessibility-ci/fixtures/test/*.test.cjs 2>&1 | tee "$BUILD_EVIDENCE/tooling-tests.log"
+          test "$(git -C fixture-source rev-parse HEAD)" = "$FIXTURE_REVISION"
+          git -C fixture-source fetch --no-tags --depth=1 origin "$CONTROL_REVISION"
+          test "$(git -C fixture-source rev-parse "$CONTROL_REVISION^{commit}")" = "$CONTROL_REVISION"
+
+      - name: Build the corrected fixture from its exact source
+        run: |
+          node accessibility-ci/fixtures/produce.cjs \
+            --repo "$GITHUB_WORKSPACE/fixture-source" \
+            --work-dir "$RUNNER_TEMP/corrected-source" \
+            --output "$RUNNER_TEMP/corrected-fixture" \
+            --npm-cache "$RUNNER_TEMP/fixture-npm-cache" \
+            --variant corrected 2>&1 | tee "$BUILD_EVIDENCE/corrected-build.log"
+
+      - name: Build the broken runtime control with separate provenance
+        run: |
+          node accessibility-ci/fixtures/produce.cjs \
+            --repo "$GITHUB_WORKSPACE/fixture-source" \
+            --work-dir "$RUNNER_TEMP/broken-source" \
+            --output "$RUNNER_TEMP/broken-fixture" \
+            --npm-cache "$RUNNER_TEMP/fixture-npm-cache" \
+            --variant broken 2>&1 | tee "$BUILD_EVIDENCE/broken-build.log"
+
+      - name: Export exact produced digests
+        id: digests
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          for (const variant of ['corrected', 'broken']) {
+            const file = `${process.env.RUNNER_TEMP}/${variant}-fixture/build-provenance.json`;
+            const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (!/^[a-f0-9]{64}$/.test(manifest.buildSha256)) throw Error('Missing build digest');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `${variant}_sha256=${manifest.buildSha256}\n`);
+            fs.copyFileSync(file, `${process.env.BUILD_EVIDENCE}/${variant}-provenance.json`);
+          }
+          fs.writeFileSync(`${process.env.BUILD_EVIDENCE}/producer.json`, JSON.stringify({
+            repository: process.env.GITHUB_REPOSITORY, revision: process.env.GITHUB_SHA,
+            runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT,
+            workflow: process.env.GITHUB_WORKFLOW_REF, node: process.version,
+            fixtureRevision: process.env.FIXTURE_REVISION, controlRuntimeRevision: process.env.CONTROL_REVISION,
+          }, null, 2));
+          NODE
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        id: corrected
+        with:
+          name: corrected-modal-fixture
+          path: ${{ runner.temp }}/corrected-fixture
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        id: broken
+        with:
+          name: broken-modal-fixture
+          path: ${{ runner.temp }}/broken-fixture
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Retain fixture build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: fixture-build-evidence
+          path: |
+            ${{ runner.temp }}/fixture-evidence
+            ${{ runner.temp }}/corrected-source/logs
+            ${{ runner.temp }}/corrected-source/failure.json
+            ${{ runner.temp }}/broken-source/logs
+            ${{ runner.temp }}/broken-source/failure.json
+          if-no-files-found: error
+          retention-days: 14
+
+  voiceover:
+    needs: build-fixtures
+    if: github.repository == 'ryparker/aloud'
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI_EVIDENCE: ${{ runner.temp }}/voiceover-evidence
+      USWDS_AT_OUTPUT_DIR: ${{ runner.temp }}/voiceover-evidence/calibration
+      USWDS_AT_CORRECTED_ARTIFACT: ${{ runner.temp }}/corrected-fixture
+      USWDS_AT_BROKEN_ARTIFACT: ${{ runner.temp }}/broken-fixture
+      USWDS_AT_CORRECTED_SHA256: ${{ needs.build-fixtures.outputs.corrected_sha256 }}
+      USWDS_AT_BROKEN_SHA256: ${{ needs.build-fixtures.outputs.broken_sha256 }}
+      USWDS_AT_DEPENDENCY_ROOT: ${{ runner.temp }}/voiceover-deps
+      GUIDEPUP_SCREEN_READERS_PATH: ${{ runner.temp }}/voiceover-assets
+      USWDS_SAFARI_DRIVER: http://127.0.0.1:8773
+    steps:
+      - name: Require and identify the disposable desktop
+        run: |
+          mkdir -p "$CI_EVIDENCE"
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = macOS
+          /usr/bin/sw_vers > "$CI_EVIDENCE/runner-os.txt"
+          /usr/bin/csrutil status > "$CI_EVIDENCE/sip-status.txt"
+          node -e 'require("fs").writeFileSync(process.env.CI_EVIDENCE + "/runner.json", JSON.stringify({image:process.env.ImageOS,imageVersion:process.env.ImageVersion,repository:process.env.GITHUB_REPOSITORY,revision:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT},null,2))'
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: accessibility-ci
+
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.build-fixtures.outputs.corrected_id }}
+          path: ${{ runner.temp }}/corrected-fixture
+          merge-multiple: true
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.build-fixtures.outputs.broken_id }}
+          path: ${{ runner.temp }}/broken-fixture
+          merge-multiple: true
+
+      - name: Install locked desktop tooling and profiles
+        run: |
+          mkdir -p "$USWDS_AT_DEPENDENCY_ROOT"
+          cp accessibility-ci/examples/ci/tool-deps/package*.json "$USWDS_AT_DEPENDENCY_ROOT/"
+          cd "$USWDS_AT_DEPENDENCY_ROOT"
+          npm ci --ignore-scripts --omit=optional --no-audit --no-fund 2>&1 | tee "$CI_EVIDENCE/npm-ci.log"
+          node node_modules/@guidepup/setup/bin/guidepup install voiceover 2>&1 | tee "$CI_EVIDENCE/profile-install.log"
+          cp node_modules/@guidepup/guidepup/manifest.json "$CI_EVIDENCE/guidepup-manifest.json"
+          cp package-lock.json "$CI_EVIDENCE/tool-package-lock.json"
+
+      - name: Configure the ephemeral desktop
+        timeout-minutes: 5
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          cd "$USWDS_AT_DEPENDENCY_ROOT"
+          node node_modules/@guidepup/setup/bin/guidepup setup --ci 2>&1 | tee "$CI_EVIDENCE/guidepup-setup.log"
+          sudo /usr/bin/safaridriver --enable 2>&1 | tee "$CI_EVIDENCE/safari-enable.log"
+
+      - name: Calibrate the controls and collect ten corrected runs
+        timeout-minutes: 15
+        env:
+          USWDS_AT_DEDICATED_SESSION: '1'
+        run: |
+          /usr/bin/safaridriver --port 8773 > "$CI_EVIDENCE/safaridriver.log" 2>&1 &
+          driver_pid=$!
+          trap 'kill "$driver_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8773/status > "$CI_EVIDENCE/driver-status.json"
+          node accessibility-ci/voiceover/calibrate.cjs 2>&1 | tee "$CI_EVIDENCE/calibration.log"
+
+      - name: Retain native evidence after success or failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: voiceover-calibration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/voiceover-evidence
+          if-no-files-found: error
+          retention-days: 14

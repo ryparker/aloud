@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@guidepup/guidepup": "0.34.0",
+    "@guidepup/setup": "0.25.3"
+  }
+}
