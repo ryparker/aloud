@@ -234,7 +234,7 @@ jobs:
         run: |
           /usr/bin/log show --last 10m --style compact --predicate 'process == "VoiceOver" OR process == "VoiceOverStarter" OR process == "VoiceOverUtility"' > "$CI_EVIDENCE/voiceover-system.log" 2>&1 || true
           /usr/sbin/system_profiler SPAudioDataType > "$CI_EVIDENCE/audio-devices.txt" 2>&1 || true
-          /usr/bin/screencapture -x "$CI_EVIDENCE/desktop-failure.png" > "$CI_EVIDENCE/screenshot.log" 2>&1 || true
+          /usr/sbin/screencapture -x "$CI_EVIDENCE/desktop-failure.png" > "$CI_EVIDENCE/screenshot.log" 2>&1 || true
           node <<'NODE'
           const fs = require('node:fs');
           const os = require('node:os');

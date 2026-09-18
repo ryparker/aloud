@@ -42,3 +42,5 @@ node --test accessibility-ci/voiceover/test/*.test.cjs accessibility-ci/fixtures
 These checks run without a desktop, browser or installed screen reader. Real execution requires the workflow's disposable macOS desktop or an independently authorized dedicated test user. Guidepup setup changes desktop permissions and preferences and can leave profile trust and symlinks behind; do not run it on a normal working account as an incidental test.
 
 The experiment is informational until real corrected/broken controls, repeated execution and independent expectation review establish its scope and reliability. It does not claim Section 508 conformance or satisfy all of USWDS issue #6925.
+
+The optional full-desktop diagnostic used an incorrect executable path in the recorded runs. The workflow now uses `/usr/sbin/screencapture`; executable presence and shell syntax were checked locally without capturing a desktop. This diagnostic-only correction has not been rerun on hosted CI. Existing per-step Safari screenshots were captured successfully.
