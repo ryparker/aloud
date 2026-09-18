@@ -9,7 +9,7 @@ const { SCENARIO, GUIDE_VERSION, CAPTURE_POLICY, requireEvidence, productAssert,
   assessObservation, errorRecord, evaluateResult } = require("./evidence.cjs");
 const { collectCommandCapture } = require("./capture.cjs");
 const { verifyInstalledStartup } = require("./guidepup-startup-patch.cjs");
-const { diagnoseModalCapture } = require("./diagnostics.cjs");
+const { diagnoseModalCapture, rawNativeRead } = require("./diagnostics.cjs");
 const { verifyInstalledRawTrace, verifyTrace } = require("./guidepup-raw-trace-patch.cjs");
 const { createSafariAppleScript } = require("./safari-applescript.cjs");
 const { enterSafariWebContent } = require("./web-content-setup.cjs");
@@ -301,7 +301,7 @@ async function replay(cfg) {
         return observed;
       };
       await enterSafariWebContent({ reader: voiceOver, keyCodes: guidepup.MacOSKeyCodes,
-        record: result.browserEntry, verifyContext, recordAction });
+        record: result.browserEntry, verifyContext, recordAction, readNativePhrase: () => rawNativeRead("phrase") });
     }
     stage = "Opener capture sentinel";
     const openerLabel = await script("return document.querySelector('[data-open-modal]').textContent.trim();");
