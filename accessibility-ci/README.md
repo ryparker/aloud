@@ -46,3 +46,5 @@ These checks run without a desktop, browser or installed screen reader. Real exe
 The experiment is informational until real corrected/broken controls, repeated execution and independent expectation review establish its scope and reliability. It does not claim Section 508 conformance or satisfy all of USWDS issue #6925.
 
 Full-desktop diagnostics now use `/usr/sbin/screencapture` and were captured successfully in runs 35293476597 and 35294123940. Earlier missing desktop captures remain recorded as missing evidence.
+
+[Run 35295064401](https://github.com/ryparker/aloud/actions/runs/35295064401) verified the ordinary Safari adapter and JavaScript permission, and both VoiceOver startups and cleanup succeeded. Both attempts stopped at the opener sentinel because native focus remained on the toolbar despite the expected DOM active element. The next change adds bounded native web-content entry before the unchanged opener sentinel. Modal activation, teardown and repetitions have not yet been reached with this transport.

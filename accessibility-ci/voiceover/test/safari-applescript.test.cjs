@@ -62,6 +62,7 @@ function mockSafari(options = {}) {
       return "closed";
     }
     assert.ok(script.includes("window id 99"), "All post-creation native operations must target the owned numeric window ID");
+    if (script.includes("return id of front window")) return String(options.wrongFrontWindow ? 12 : 99);
     assert.ok(!script.includes("front window"), "Post-creation operations must not follow a changed foreground window");
     if (script.includes("return do JavaScript")) {
       if (options.jsDenied) throw new Error("JavaScript from Apple Events is disabled");
@@ -163,4 +164,20 @@ test("concurrent session requests serialize so only one owned window is created"
   assert.match(results[1].reason.message, /already owns/);
   assert.equal(mock.calls.filter(call => call.args[1].includes("make new document")).length, 1);
   await adapter.request("DELETE", `/session/${results[0].value.sessionId}`);
+});
+
+
+test("owned-window verification rejects another front window without moving or closing it", async () => {
+  for (const wrongFrontWindow of [false, true]) {
+    const mock = mockSafari({ wrongFrontWindow });
+    const adapter = createSafariAppleScript({ runDir: path.resolve(os.tmpdir()), command: mock.command });
+    const { sessionId } = await adapter.request("POST", "/session", sessionRequest);
+    const before = mock.calls.length;
+    if (wrongFrontWindow) await assert.rejects(adapter.request("GET", `/session/${sessionId}/window`), /not the front/);
+    else assert.equal(await adapter.request("GET", `/session/${sessionId}/window`), "99");
+    assert.equal(mock.calls.length, before + 1);
+    assert.deepEqual(mock.closedIds, []);
+    await adapter.request("DELETE", `/session/${sessionId}`);
+    assert.deepEqual(mock.closedIds, [99]);
+  }
 });

@@ -12,6 +12,7 @@ const { verifyInstalledStartup } = require("./guidepup-startup-patch.cjs");
 const { diagnoseModalCapture } = require("./diagnostics.cjs");
 const { verifyInstalledRawTrace, verifyTrace } = require("./guidepup-raw-trace-patch.cjs");
 const { createSafariAppleScript } = require("./safari-applescript.cjs");
+const { enterSafariWebContent } = require("./web-content-setup.cjs");
 
 const exec = promisify(execFile);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -190,7 +191,7 @@ async function replay(cfg) {
   const snapshot = async () => ({ ...await script(`return {
     url: location.href, runToken: window.__uswdsAtRunToken,
     fixtureReady: window.uswdsTest?.ready === true,
-    focus: document.activeElement?.outerHTML,
+    focus: document.activeElement?.outerHTML, documentHasFocus: document.hasFocus(),
     backgroundPresent: !!document.querySelector('#test-background'),
     backgroundHidden: !!document.querySelector('#test-background')?.closest('[aria-hidden="true"]'),
     authoredHidden: document.querySelector('#test-authored-hidden')?.getAttribute('aria-hidden'),
@@ -285,6 +286,23 @@ async function replay(cfg) {
     result.environment.guidepupVoiceOverAssetVersion = voiceOver.version;
     result.environment.voiceOver = await command("/usr/libexec/PlistBuddy", ["-c", "Print:CFBundleShortVersionString", "/System/Library/CoreServices/VoiceOver.app/Contents/Info.plist"]);
     await recordAction("setup", "Activate Safari in the dedicated desktop session", () => guidepup.macOSActivate(guidepup.MacOSApplications.Safari));
+    if (cfg.browserTransport === "applescript") {
+      stage = "Enter ordinary Safari web content";
+      result.browserEntry = {};
+      const verifyContext = async phase => {
+        const windowId = await webdriver("GET", `/session/${session}/window`);
+        const target = await script("return {url:location.href,runToken:window.__uswdsAtRunToken,fixtureReady:window.uswdsTest?.ready === true,documentHasFocus:document.hasFocus(),title:document.title};");
+        const foregroundApp = await foreground();
+        const observed = { phase, windowId, foregroundApp, ...target };
+        (result.browserEntry.targetChecks ||= []).push(observed);
+        requireEvidence(foregroundApp === "com.apple.Safari" && target.url === new URL(cfg.story).href &&
+          target.runToken === result.runToken && target.fixtureReady === true,
+        "Ordinary Safari browser-entry target identity changed");
+        return observed;
+      };
+      await enterSafariWebContent({ reader: voiceOver, keyCodes: guidepup.MacOSKeyCodes,
+        record: result.browserEntry, verifyContext, recordAction });
+    }
     stage = "Opener capture sentinel";
     const openerLabel = await script("return document.querySelector('[data-open-modal]').textContent.trim();");
     result.fixture = { openerLabel, expectedHeading: "Background content" };
@@ -310,6 +328,13 @@ async function replay(cfg) {
     requireEvidence((await buildDigest(cfg.buildDir)).sha256 === result.build.sha256, "Declared build changed during execution");
   } catch (error) {
     result.errors.push(errorRecord(error, stage));
+    if (stage === "Enter ordinary Safari web content" && session) {
+      try {
+        const bytes = Buffer.from(await webdriver("GET", `/session/${session}/screenshot`), "base64");
+        await fs.writeFile(path.join(runDir, "browser-entry-failure.png"), bytes, { flag: "wx" });
+        result.browserEntry.screenshot = { file: "browser-entry-failure.png", sha256: sha256(bytes), source: "macos-desktop" };
+      } catch (captureError) { result.errors.push(errorRecord(captureError, "Browser-entry failure screenshot")); }
+    }
     if (cfg.diagnostics && voiceOverStarted && stage === "Open modal" &&
       error.message === "Required step speech is missing or malformed") {
       try {

@@ -146,6 +146,11 @@ function createSafariAppleScript({ runDir, command } = {}) {
     requireEvidence(route === prefix || route.startsWith(`${prefix}/`), "Unknown Safari session");
     const suffix = route.slice(prefix.length);
     if (method === "DELETE" && suffix === "") { await closeOwned(); return null; }
+    if (method === "GET" && suffix === "/window") {
+      const [frontId] = numberList(await owned("return id of front window"), 1);
+      requireEvidence(frontId === session.windowId, `Owned Safari window is not the front browser window (owned ${session.windowId}, front ${frontId})`);
+      return String(session.windowId);
+    }
     if ((method === "GET" || method === "POST") && suffix === "/window/rect") {
       let setter = "";
       if (method === "POST") {
