@@ -1,7 +1,7 @@
 const { collectCommandCapture } = require("./capture.cjs");
 const { requireEvidence, errorRecord } = require("./evidence.cjs");
 
-const LIMITS = Object.freeze({ deadlineMs: 60000, commandLimit: 6, nativeTimeoutMaxMs: 5000,
+const LIMITS = Object.freeze({ deadlineMs: 60000, commandLimit: 7, nativeTimeoutMaxMs: 5000,
   chooserReadinessSamples: 4, chooserReadinessIntervalMs: 200 });
 const now = () => new Date().toISOString();
 
@@ -25,6 +25,7 @@ async function enterSafariWebContent({ reader, keyCodes, record, verifyContext, 
     "Browser entry requires context verification and action recording");
   requireEvidence(reader && typeof reader.perform === "function" && typeof reader.type === "function" &&
     typeof reader.interact === "function" && reader.keyboardCommands?.openItemChooser &&
+    reader.keyboardCommands?.moveKeyboardFocusToCursor &&
     [keyCodes?.Control, keyCodes?.Escape, keyCodes?.Enter].every(Number.isSafeInteger),
   "Browser entry requires the pinned Guidepup native commands");
   const started = clock();
@@ -117,9 +118,11 @@ async function enterSafariWebContent({ reader, keyCodes, record, verifyContext, 
       !/^(?:toolbar|item chooser)$/i.test(interacted.itemText.trim()),
     "Browser entry interaction remained on browser chrome or returned no native item");
     interacted.fixtureIdentityVerified = false;
+    await command("move-keyboard-focus-to-cursor", "Move keyboard focus to the VoiceOver cursor once after web-content interaction", true,
+      options => reader.perform(reader.keyboardCommands.moveKeyboardFocusToCursor, options));
     await context("after");
     requireEvidence(record.commands.length === LIMITS.commandLimit && record.commands.every(item => item.commandCompleted),
-      "Browser entry did not complete its six setup API calls");
+      "Browser entry did not complete its seven setup API calls");
     record.status = "completed-awaiting-opener-sentinel";
     return record;
   } catch (error) {

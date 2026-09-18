@@ -13,6 +13,7 @@ function dependencies(settings = {}) {
   const events = [];
   const record = {};
   const chooserCommand = { keyCode: 34, modifiers: [59, 58], description: "Open Item Chooser" };
+  const handoffCommand = { keyCode: 118, modifiers: [59, 58, 55], description: "Move keyboard focus to VoiceOver cursor" };
   const operate = async (id, options) => {
     events.push(id);
     native.push({ id, options });
@@ -22,12 +23,13 @@ function dependencies(settings = {}) {
     if (settings.errorAt === id) throw settings.error;
     const output = id === "chooser" ? settings.chooser || { speech: ["Item Chooser\n"], item: "Item Chooser" } :
       id === "type" ? settings.selection || { speech: ["web content, one item\n"], item: "web content" } :
+        id === "handoff" ? settings.handoff || { speech: ["keyboard focus moved\n"], item: "main" } :
         settings.interaction || { speech: ["entered web content\n"], item: "Background content heading level 1" };
     if (options.capture) { speech = output.speech; itemText = output.item; }
   };
   const reader = {
-    keyboardCommands: { openItemChooser: chooserCommand },
-    perform: (command, options) => operate(command === chooserCommand ? "chooser" :
+    keyboardCommands: { openItemChooser: chooserCommand, moveKeyboardFocusToCursor: handoffCommand },
+    perform: (command, options) => operate(command === chooserCommand ? "chooser" : command === handoffCommand ? "handoff" :
       command.keyCode === 59 ? "control" : command.keyCode === 53 ? "escape" : "enter", options),
     type: (text, options) => {
       assert.equal(text, "web content");
@@ -53,11 +55,11 @@ function dependencies(settings = {}) {
   };
 }
 
-test("browser entry records exactly six setup API calls and preserves fresh captured strings", async () => {
+test("browser entry records exactly seven setup API calls and preserves fresh captured strings", async () => {
   const deps = dependencies();
   assert.equal(await enterSafariWebContent(deps), deps.record);
-  assert.deepEqual(deps.native.map(item => item.id), ["control", "escape", "chooser", "type", "enter", "interact"]);
-  assert.deepEqual(deps.native.map(item => item.options.capture), [false, false, true, "initial", false, true]);
+  assert.deepEqual(deps.native.map(item => item.id), ["control", "escape", "chooser", "type", "enter", "interact", "handoff"]);
+  assert.deepEqual(deps.native.map(item => item.options.capture), [false, false, true, "initial", false, true, true]);
   assert.deepEqual(deps.contexts, ["before", "after"]);
   assert.equal(deps.record.status, "completed-awaiting-opener-sentinel");
   assert.equal(deps.record.purpose, "assisted-browser-entry");
@@ -66,6 +68,10 @@ test("browser entry records exactly six setup API calls and preserves fresh capt
   assert.equal(deps.record.commands[3].capture.captureMode, "initial");
   assert.equal(deps.record.commands[2].capture.captureMode, true);
   assert.equal(deps.record.commands[5].capture.captureMode, true);
+  assert.equal(deps.record.commands[6].id, "move-keyboard-focus-to-cursor");
+  assert.equal(deps.record.commands[6].capture.captureMode, true);
+  assert.deepEqual(deps.record.commands[6].speech, ["keyboard focus moved\n"]);
+  assert.equal(deps.record.commands[6].itemText, "main");
   assert.equal(CAPTURE_POLICY.captureMode, true);
   assert.equal(deps.record.commands[5].itemText, "Background content heading level 1");
   assert.equal(deps.record.commands[2].identityVerified, "item chooser");
@@ -73,8 +79,8 @@ test("browser entry records exactly six setup API calls and preserves fresh capt
   assert.equal(deps.record.commands[3].candidateSelectionVerified, false);
   assert.equal(Object.hasOwn(deps.record.commands[3], "identityVerified"), false);
   assert.equal(deps.record.commands[5].fixtureIdentityVerified, false);
-  assert.equal(deps.events.filter(event => event === "clear-speech").length, 3);
-  assert.equal(deps.events.filter(event => event === "clear-item").length, 3);
+  assert.equal(deps.events.filter(event => event === "clear-speech").length, 4);
+  assert.equal(deps.events.filter(event => event === "clear-item").length, 4);
   assert.equal(deps.actions.length, LIMITS.commandLimit);
   assert.ok(deps.record.commands.every(item => item.commandCompleted && item.finishedAt));
   assert.equal(Object.hasOwn(deps.record, "assertions"), false);
@@ -92,9 +98,9 @@ test("initial per-character typing capture avoids full polling windows exceeding
   assert.equal(deps.record.durationMs, characters * 250);
   assert.equal(deps.record.commands[3].capture.captureMode, "initial");
   assert.deepEqual(deps.record.commands[3].speech, repeated);
-  assert.equal(deps.record.commands.length, 6);
+  assert.equal(deps.record.commands.length, 7);
   assert.equal(deps.record.status, "completed-awaiting-opener-sentinel");
-  assert.deepEqual(deps.native.slice(-2).map(item => item.id), ["enter", "interact"]);
+  assert.deepEqual(deps.native.slice(-3).map(item => item.id), ["enter", "interact", "handoff"]);
 });
 
 test("wrong or empty chooser identity stops before typing and retains completed setup captures", async () => {
@@ -164,11 +170,38 @@ test("context failure stops native work before setup or preserves all observatio
   for (const contextError of ["before", "after"]) {
     const deps = dependencies({ contextError });
     await assert.rejects(enterSafariWebContent(deps), /Owned Safari window changed/);
-    assert.equal(deps.native.length, contextError === "before" ? 0 : 6);
+    assert.equal(deps.native.length, contextError === "before" ? 0 : 7);
     assert.equal(deps.record.contexts.at(-1).verified, false);
     assert.ok(deps.record.contexts.at(-1).finishedAt);
+    if (contextError === "after") {
+      assert.deepEqual(deps.record.commands[6].speech, ["keyboard focus moved\n"]);
+      assert.equal(deps.record.commands[6].commandCompleted, true);
+    }
     assert.equal(deps.record.status, "failed");
   }
+});
+
+test("missing pinned keyboard-focus handoff command fails before context checks or native actions", async () => {
+  const deps = dependencies();
+  delete deps.reader.keyboardCommands.moveKeyboardFocusToCursor;
+  await assert.rejects(enterSafariWebContent(deps), /requires the pinned Guidepup native commands/);
+  assert.deepEqual(deps.record, {});
+  assert.equal(deps.native.length, 0);
+  assert.equal(deps.contexts.length, 0);
+  assert.equal(deps.actions.length, 0);
+});
+
+test("keyboard-focus handoff failure is retained without another native action or context success", async () => {
+  const error = new Error("Keyboard focus handoff failed");
+  const deps = dependencies({ errorAt: "handoff", error });
+  await assert.rejects(enterSafariWebContent(deps), observed => observed === error);
+  assert.equal(deps.native.length, 7);
+  assert.equal(deps.native.filter(item => item.id === "handoff").length, 1);
+  assert.deepEqual(deps.contexts, ["before"]);
+  assert.equal(deps.record.commands[5].commandCompleted, true);
+  assert.equal(deps.record.commands[6].commandCompleted, false);
+  assert.equal(deps.record.commands[6].error.message, error.message);
+  assert.equal(deps.record.status, "failed");
 });
 
 test("existing browser entry evidence cannot be reused or overwritten", async () => {

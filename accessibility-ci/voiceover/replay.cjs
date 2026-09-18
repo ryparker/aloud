@@ -298,6 +298,8 @@ async function replay(cfg) {
         requireEvidence(foregroundApp === "com.apple.Safari" && target.url === new URL(cfg.story).href &&
           target.runToken === result.runToken && target.fixtureReady === true,
         "Ordinary Safari browser-entry target identity changed");
+        requireEvidence(phase !== "after" || target.documentHasFocus === true,
+          "Native browser entry did not establish document keyboard focus");
         return observed;
       };
       await enterSafariWebContent({ reader: voiceOver, keyCodes: guidepup.MacOSKeyCodes,
