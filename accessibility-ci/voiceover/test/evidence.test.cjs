@@ -35,6 +35,14 @@ test("complete synthetic record satisfies the evidence contract, without executi
   assert.equal(evaluateResult(syntheticEvidence()).status, "passed");
 });
 
+test("positive requested-speech diagnostics cannot replace an empty activation capture", () => {
+  const result = syntheticEvidence();
+  result.steps[1].speech = [""];
+  result.diagnostics = { purpose: "diagnostic-only", records: [{ label: "describe-focus", speech: ["Modal action button"] }] };
+  assert.equal(evaluateResult(result).status, "inconclusive");
+  assert.equal(evaluateResult(result).evidenceComplete, false);
+});
+
 for (const [name, speech] of [["empty", []], ["blank", [" "]], ["malformed", [{ text: "Background content" }]]]) {
   test(`${name} speech cannot pass even with a correct DOM and reader item`, () => {
     const result = syntheticEvidence();

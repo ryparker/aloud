@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Native reader diagnostic control</title>
+<style>body{font:20px system-ui;margin:3rem}button{font:inherit;padding:.5rem}dialog{padding:2rem}dialog::backdrop{background:#0008}</style>
+<main>
+  <h1>Reader control background</h1>
+  <button id="focus-control">Static reader control</button>
+  <button id="plain-open">Move keyboard focus to static reader control</button>
+  <button id="native-open">Open native diagnostic dialog</button>
+</main>
+<dialog id="native-dialog" aria-labelledby="native-title">
+  <h2 id="native-title">Native diagnostic dialog</h2>
+  <p>This fixture uses the browser dialog element without USWDS.</p>
+  <button id="native-action" autofocus>Native dialog action</button>
+  <button id="native-close">Close native diagnostic dialog</button>
+</dialog>
+<script>
+const dialog = document.getElementById('native-dialog');
+document.getElementById('plain-open').addEventListener('click', () => document.getElementById('focus-control').focus());
+document.getElementById('native-open').addEventListener('click', () => dialog.showModal());
+document.getElementById('native-close').addEventListener('click', () => dialog.close());
+window.readerControlReady = true;
+</script>
+</html>

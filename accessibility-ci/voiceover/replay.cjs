@@ -9,6 +9,8 @@ const { SCENARIO, GUIDE_VERSION, CAPTURE_POLICY, requireEvidence, productAssert,
   assessObservation, errorRecord, evaluateResult } = require("./evidence.cjs");
 const { collectCommandCapture } = require("./capture.cjs");
 const { verifyInstalledStartup } = require("./guidepup-startup-patch.cjs");
+const { diagnoseModalCapture } = require("./diagnostics.cjs");
+const { verifyInstalledRawTrace, verifyTrace } = require("./guidepup-raw-trace-patch.cjs");
 
 const exec = promisify(execFile);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -30,12 +32,15 @@ function config(env = process.env) {
   requireEvidence(path.isAbsolute(env.GUIDEPUP_SCREEN_READERS_PATH || ""), "Set absolute GUIDEPUP_SCREEN_READERS_PATH to existing test profiles");
   requireEvidence(path.isAbsolute(env.USWDS_AT_OUTPUT_DIR || ""), "Set absolute USWDS_AT_OUTPUT_DIR outside this source directory");
   requireEvidence(!env.USWDS_GUIDEPUP_PATCH_MANIFEST || path.isAbsolute(env.USWDS_GUIDEPUP_PATCH_MANIFEST), "Startup patch manifest must be absolute");
+  requireEvidence(!env.USWDS_GUIDEPUP_TRACE_MANIFEST || path.isAbsolute(env.USWDS_GUIDEPUP_TRACE_MANIFEST), "Raw trace manifest must be absolute");
   const outputDir = path.resolve(env.USWDS_AT_OUTPUT_DIR);
   requireEvidence(outputDir !== __dirname && !outputDir.startsWith(`${__dirname}${path.sep}`), "Run outputs must be outside the source directory");
   return { story, driver, buildDir: path.resolve(env.USWDS_AT_BUILD_DIR), revision: env.USWDS_AT_REVISION,
     assets: path.resolve(env.GUIDEPUP_SCREEN_READERS_PATH), outputDir,
     dedicatedSession: env.USWDS_AT_DEDICATED_SESSION === "1",
+    diagnostics: env.USWDS_AT_DIAGNOSTICS === "1",
     patchManifest: env.USWDS_GUIDEPUP_PATCH_MANIFEST || null,
+    traceManifest: env.USWDS_GUIDEPUP_TRACE_MANIFEST || null,
     controlManifest: env.USWDS_AT_CONTROL_MANIFEST ? path.resolve(env.USWDS_AT_CONTROL_MANIFEST) : null,
     dependencyRoot: env.USWDS_AT_DEPENDENCY_ROOT ? path.resolve(env.USWDS_AT_DEPENDENCY_ROOT) : __dirname };
 }
@@ -122,6 +127,7 @@ async function preflight(cfg) {
   const dependency = load("@guidepup/guidepup/package.json");
   requireEvidence(dependency.version === GUIDE_VERSION, `Expected Guidepup ${GUIDE_VERSION}, found ${dependency.version}`);
   const guidepupCompatibilityPatch = await verifyInstalledStartup(cfg.dependencyRoot, cfg.patchManifest);
+  const guidepupRawTracePatch = await verifyInstalledRawTrace(cfg.dependencyRoot, cfg.traceManifest);
   requireEvidence((await fs.stat(cfg.assets)).isDirectory(), "Guidepup profile directory is missing");
   const status = await request(`${cfg.driver}/status`);
   requireEvidence(status && status.ready !== false, "Safari driver is not ready for a new session");
@@ -130,7 +136,7 @@ async function preflight(cfg) {
   const initialState = await runtimeState();
   requireEvidence(!initialState.voiceOverRunning, "VoiceOver is already running; use a dedicated test session with VoiceOver initially off");
   requireEvidence(!initialState.profileMounted, "A Guidepup profile volume is already mounted; resolve the existing test session first");
-  return { ready: true, mode: "preflight-only", guidepup: dependency.version, guidepupCompatibilityPatch, platform: process.platform,
+  return { ready: true, mode: "preflight-only", guidepup: dependency.version, guidepupCompatibilityPatch, guidepupRawTracePatch, platform: process.platform,
     osVersion: await command("/usr/bin/sw_vers", ["-productVersion"]), osBuild: await command("/usr/bin/sw_vers", ["-buildVersion"]),
     kernel: os.release(), arch: process.arch, node: process.version, driver: status, build, served, initialState,
     control: await controlMetadata(cfg.controlManifest),
@@ -219,7 +225,8 @@ async function replay(cfg) {
       kernel: info.kernel, arch: info.arch, node: info.node, guidepup: info.guidepup,
       locale: Intl.DateTimeFormat().resolvedOptions().locale, profilePath: cfg.assets,
       profileDigest: (await buildDigest(cfg.assets)).sha256, activationMethod: "voiceover-keyboard-default-action", settings: "Guidepup pinned test profile; no runtime override",
-      zoom: "not explicitly set or evaluated by this pilot", guidepupCompatibilityPatch: info.guidepupCompatibilityPatch };
+      zoom: "not explicitly set or evaluated by this pilot", guidepupCompatibilityPatch: info.guidepupCompatibilityPatch,
+      guidepupRawTracePatch: info.guidepupRawTracePatch };
     result.build = { ...info.build, revision: cfg.revision, source: "operator-declared SHA with local/HTTP byte checks", servedFilesVerified: false };
     if (info.control) {
       result.build.control = info.control;
@@ -236,6 +243,11 @@ async function replay(cfg) {
     result.cleanup.safariSession = "pending";
     result.environment.browser = created.capabilities;
     requireEvidence(created.capabilities?.browserName?.toLowerCase() === "safari", "Driver did not create actual Safari");
+    const requestedWindow = { x: 0, y: 0, width: 1280, height: 900 };
+    result.environment.window = { requested: requestedWindow,
+      actual: await webdriver("POST", `/session/${session}/window/rect`, requestedWindow) };
+    requireEvidence(result.environment.window.actual.width === requestedWindow.width &&
+      result.environment.window.actual.height === requestedWindow.height, "Safari did not adopt the fixed comparison window size");
     await recordAction("setup", "Navigate Safari to the dedicated fixture URL", () => webdriver("POST", `/session/${session}/url`, { url: cfg.story }));
     stage = "Fixture readiness";
     const deadline = Date.now() + 20000;
@@ -249,6 +261,7 @@ async function replay(cfg) {
     result.servedResources.push(...await verifyServedFiles(cfg, urls));
     result.build.servedFilesVerified = true;
     stage = "VoiceOver startup";
+    if (cfg.traceManifest) process.env.USWDS_VO_NATIVE_TRACE = path.join(runDir, "native-reads.jsonl");
     const load = createRequire(path.join(cfg.dependencyRoot, "package.json"));
     const guidepup = load("@guidepup/guidepup");
     voiceOver = guidepup.voiceOver;
@@ -285,6 +298,21 @@ async function replay(cfg) {
     requireEvidence((await buildDigest(cfg.buildDir)).sha256 === result.build.sha256, "Declared build changed during execution");
   } catch (error) {
     result.errors.push(errorRecord(error, stage));
+    if (cfg.diagnostics && voiceOverStarted && stage === "Open modal" &&
+      error.message === "Required step speech is missing or malformed") {
+      try {
+        // Preserve the original failure before probes alter focus or navigate away.
+        await fs.writeFile(path.join(runDir, "failure-before-diagnostics.json"), `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
+        result.diagnostics = await diagnoseModalCapture({ reader: voiceOver, script,
+          navigate: url => webdriver("POST", `/session/${session}/url`, { url }), foreground,
+          originalSnapshot: result.steps.at(-1), outputDir: runDir,
+          desktop: async file => {
+            const absolute = path.join(runDir, file);
+            await command("/usr/sbin/screencapture", ["-x", absolute]);
+            return { file, sha256: sha256(await fs.readFile(absolute)) };
+          } });
+      } catch (diagnosticError) { result.errors.push(errorRecord(diagnosticError, "Diagnostic collection")); }
+    }
   } finally {
     if (voiceOverStarted) {
       try { await voiceOver.stop({ timeout: 10000, retries: 1 }); result.cleanup.voiceOver = "stopped"; }
@@ -304,6 +332,12 @@ async function replay(cfg) {
     if (session) {
       try { await webdriver("DELETE", `/session/${session}`); result.cleanup.safariSession = "deleted"; }
       catch (error) { result.cleanup.safariSession = "failed"; result.cleanup.errors.push(errorRecord(error, "Safari session cleanup")); }
+    }
+    if (cfg.traceManifest && voiceOverStartAttempted) {
+      try {
+        requireEvidence(!process.env.USWDS_VO_NATIVE_TRACE_ERROR, process.env.USWDS_VO_NATIVE_TRACE_ERROR || "Native trace lost evidence");
+        result.nativeTrace = await verifyTrace(path.join(runDir, "native-reads.jsonl"));
+      } catch (traceError) { result.errors.push(errorRecord(traceError, "Native trace verification")); }
     }
     result.finishedAt = timestamp();
     Object.assign(result, evaluateResult(result));

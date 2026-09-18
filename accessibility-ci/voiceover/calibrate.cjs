@@ -174,7 +174,7 @@ async function executeAttempt(artifact, outputDir, ordinal, env) {
       await new Promise(resolve => {
         const child = spawn(process.execPath, [path.join(__dirname, "replay.cjs")], { env: childEnv, stdio: ["ignore", stdout.fd, stderr.fd] });
         let killTimer;
-        const timer = setTimeout(() => { attempt.timedOut = true; child.kill("SIGTERM"); killTimer = setTimeout(() => child.kill("SIGKILL"), 5000); }, 120000);
+        const timer = setTimeout(() => { attempt.timedOut = true; child.kill("SIGTERM"); killTimer = setTimeout(() => child.kill("SIGKILL"), 5000); }, env.USWDS_AT_DIAGNOSTICS === "1" ? 300000 : 120000);
         child.once("error", error => { attempt.error = error.message; });
         child.once("close", (code, signal) => { clearTimeout(timer); clearTimeout(killTimer); attempt.exitCode = code; attempt.signal = signal; resolve(); });
       });
@@ -218,9 +218,17 @@ async function main() {
       await fs.rename(path.join(outputDir, "calibration.json.tmp"), path.join(outputDir, "calibration.json"));
     };
     await save();
-    for (const artifact of [corrected, broken]) { attempts.push(await executeAttempt(artifact, outputDir, attempts.length + 1, env)); await save(); }
+    const run = async artifact => {
+      console.log(JSON.stringify({ event: "attempt-started", ordinal: attempts.length + 1, variant: artifact.variant, at: timestamp() }));
+      attempts.push(await executeAttempt(artifact, outputDir, attempts.length + 1, env));
+      await save();
+      const attempt = attempts.at(-1);
+      console.log(JSON.stringify({ event: "attempt-completed", ordinal: attempts.length, variant: artifact.variant,
+        status: attempt.result?.status, timedOut: attempt.timedOut, problems: attemptProblems(attempt), at: timestamp() }));
+    };
+    for (const artifact of [corrected, broken]) await run(artifact);
     if (evaluateCalibration(attempts).calibrationValid) {
-      for (let index = 0; index < 9; index++) { attempts.push(await executeAttempt(corrected, outputDir, attempts.length + 1, env)); await save(); }
+      for (let index = 0; index < 9; index++) await run(corrected);
     }
     Object.assign(summary, evaluateCalibration(attempts));
     if (summary.status !== "passed") process.exitCode = 1;

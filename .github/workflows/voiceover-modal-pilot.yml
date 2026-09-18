@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/voiceover-modal-pilot.yml
       - accessibility-ci/**/*.cjs
+      - accessibility-ci/voiceover/reader-control.html
       - accessibility-ci/**/package.json
       - accessibility-ci/**/package-lock.json
   workflow_dispatch:
@@ -216,10 +217,19 @@ jobs:
           node node_modules/@guidepup/setup/bin/guidepup setup --ci 2>&1 | tee "$CI_EVIDENCE/guidepup-setup.log"
           sudo /usr/bin/safaridriver --enable 2>&1 | tee "$CI_EVIDENCE/safari-enable.log"
 
+      - name: Install and record raw native-read diagnostics
+        run: |
+          node accessibility-ci/voiceover/guidepup-raw-trace-patch.cjs \
+            --dependency-root "$USWDS_AT_DEPENDENCY_ROOT" \
+            --manifest "$CI_EVIDENCE/guidepup-raw-trace-patch.json"
+          printf 'USWDS_GUIDEPUP_TRACE_MANIFEST=%s/guidepup-raw-trace-patch.json\n' "$CI_EVIDENCE" >> "$GITHUB_ENV"
+          cp /System/Library/CoreServices/VoiceOver.app/Contents/Resources/VoiceOver.sdef "$CI_EVIDENCE/VoiceOver.sdef"
+
       - name: Calibrate the controls and collect ten corrected runs
         timeout-minutes: 15
         env:
           USWDS_AT_DEDICATED_SESSION: '1'
+          USWDS_AT_DIAGNOSTICS: '1'
           DEBUG: guidepup*
         run: |
           /usr/bin/safaridriver --port 8773 > "$CI_EVIDENCE/safaridriver.log" 2>&1 &
