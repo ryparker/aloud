@@ -29,6 +29,8 @@ Hosted startup currently tests an explicit compatibility patch to Guidepup 0.34.
 
 [Run 35288143228](https://github.com/ryparker/aloud/actions/runs/35288143228), tooling commit `b7bf12da7c8cb72270e533557b91aee7583f88a4`: all 69 tooling tests and both fixture builds passed. VoiceOver started for both fixtures, captured the opener phrase and activated the modal. Both attempts then remained inconclusive: modal-open speech was empty through 100 SDK polls. Cleanup succeeded, and teardown and repetitions did not run. No complete corrected scenario has passed.
 
+[Run 35288889533](https://github.com/ryparker/aloud/actions/runs/35288889533), tooling commit `3819582b847d48f3062503838bf8687e7991fa36`, tested native VO-Space activation in a fresh replay. It reproduced the same empty modal-open capture in both fixtures. Startup, opener capture, activation and cleanup passed again; both scenario results remained inconclusive. The new method is recorded as `voiceover-keyboard-default-action`. All earlier observations are retained.
+
 The next investigation must distinguish native modal speech from the caption interface. Preserve the original empty activation observation. Any explicit re-read belongs in a separate diagnostic record and cannot substitute for an automatic announcement or make the original result pass.
 
 ## Local checks
