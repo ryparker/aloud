@@ -48,3 +48,9 @@ The experiment is informational until real corrected/broken controls, repeated e
 Full-desktop diagnostics now use `/usr/sbin/screencapture` and were captured successfully in runs 35293476597 and 35294123940. Earlier missing desktop captures remain recorded as missing evidence.
 
 [Run 35295064401](https://github.com/ryparker/aloud/actions/runs/35295064401) verified the ordinary Safari adapter and JavaScript permission, and both VoiceOver startups and cleanup succeeded. Both attempts stopped at the opener sentinel because native focus remained on the toolbar despite the expected DOM active element. The next change adds bounded native web-content entry before the unchanged opener sentinel. Modal activation, teardown and repetitions have not yet been reached with this transport.
+
+## Current checkpoint
+
+[Run 35297738621](https://github.com/ryparker/aloud/actions/runs/35297738621), tooling commit `49db1217a37e8c1650a8496644e2e340a1da83bb`, completed with two inconclusive attempts. All 111 device-free tests and both fixture builds passed. The preceding capture fix reduced ordinary Safari browser entry to about 19 to 23 seconds, but the native keyboard-focus handoff still did not establish document focus on the corrected fixture. The broken attempt could not establish chooser identity from caption text, despite a visible chooser in its screenshot. Both readers and owned browser windows cleaned up, and raw traces had no read errors or truncation. Neither attempt reached the modal.
+
+No complete corrected scenario, intended broken teardown calibration, or ten-run stability sample has passed. The next bounded investigation must establish a native focusable page control and verify chooser state independently of its variable last-phrase text. The existing opener and modal acceptance checks remain unchanged. All recorded hosted runs have finished; no required release gate is enabled.
