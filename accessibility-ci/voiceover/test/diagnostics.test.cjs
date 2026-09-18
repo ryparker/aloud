@@ -42,7 +42,11 @@ function dependencies() {
   const reader = {
     keyboardCommands: { describeItemWithKeyboardFocus: command("describe"), moveCursorToKeyboardFocus: command("sync"), performDefaultActionForItem: command("activate") },
     clearSpokenPhraseLog: async () => {}, clearItemTextLog: async () => {},
-    perform: async command => { events.push(command.description); },
+    // Guidepup 0.34.0 uses retries as total attempts, not extra attempts.
+    perform: async (command, { retries }) => {
+      for (let attempt = 0; attempt < retries; attempt++) { events.push(command.description); return; }
+      throw new Error("No native command attempted");
+    },
     spokenPhraseLog: async () => ["requested output"], itemText: async () => "diagnostic item",
   };
   const originalSnapshot = Object.freeze({ id: "modal-open", speech: Object.freeze([""]), itemText: "stale opener" });

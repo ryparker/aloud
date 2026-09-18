@@ -72,7 +72,7 @@ async function diagnoseModalCapture({ reader, script, navigate, foreground, desk
     const record = { label, method: "elicited-native-command", command: command.description, startedAt: now() };
     result.records.push(record);
     await save();
-    Object.assign(record, await collectCommandCapture(reader, () => reader.perform(command, { timeout: 5000, retries: 0 })));
+    Object.assign(record, await collectCommandCapture(reader, () => reader.perform(command, { timeout: 5000, retries: 1 })));
     record.state = await state(); record.finishedAt = now();
     await save();
   };
