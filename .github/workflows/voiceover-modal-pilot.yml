@@ -151,6 +151,7 @@ jobs:
       USWDS_AT_CORRECTED_SHA256: ${{ needs.build-fixtures.outputs.corrected_sha256 }}
       USWDS_AT_BROKEN_SHA256: ${{ needs.build-fixtures.outputs.broken_sha256 }}
       USWDS_SAFARI_DRIVER: http://127.0.0.1:8773
+      USWDS_SAFARI_TRANSPORT: applescript
     steps:
       - name: Require and identify the disposable desktop
         run: |
@@ -215,7 +216,12 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           cd "$USWDS_AT_DEPENDENCY_ROOT"
           node node_modules/@guidepup/setup/bin/guidepup setup --ci 2>&1 | tee "$CI_EVIDENCE/guidepup-setup.log"
-          sudo /usr/bin/safaridriver --enable 2>&1 | tee "$CI_EVIDENCE/safari-enable.log"
+          if [ "$USWDS_SAFARI_TRANSPORT" = applescript ]; then
+            /usr/bin/defaults write com.apple.Safari AllowJavaScriptFromAppleEvents -bool true
+            /usr/bin/defaults read com.apple.Safari AllowJavaScriptFromAppleEvents > "$CI_EVIDENCE/safari-javascript-preference.txt"
+          else
+            sudo /usr/bin/safaridriver --enable 2>&1 | tee "$CI_EVIDENCE/safari-enable.log"
+          fi
 
       - name: Install and record raw native-read diagnostics
         run: |
@@ -232,10 +238,12 @@ jobs:
           USWDS_AT_DIAGNOSTICS: '1'
           DEBUG: guidepup*
         run: |
-          /usr/bin/safaridriver --port 8773 > "$CI_EVIDENCE/safaridriver.log" 2>&1 &
-          driver_pid=$!
-          trap 'kill "$driver_pid" 2>/dev/null || true' EXIT
-          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8773/status > "$CI_EVIDENCE/driver-status.json"
+          if [ "$USWDS_SAFARI_TRANSPORT" = webdriver ]; then
+            /usr/bin/safaridriver --port 8773 > "$CI_EVIDENCE/safaridriver.log" 2>&1 &
+            driver_pid=$!
+            trap 'kill "$driver_pid" 2>/dev/null || true' EXIT
+            curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8773/status > "$CI_EVIDENCE/driver-status.json"
+          fi
           node accessibility-ci/voiceover/calibrate.cjs 2>&1 | tee "$CI_EVIDENCE/calibration.log"
 
       - name: Collect native failure diagnostics

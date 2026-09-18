@@ -11,6 +11,7 @@ const { collectCommandCapture } = require("./capture.cjs");
 const { verifyInstalledStartup } = require("./guidepup-startup-patch.cjs");
 const { diagnoseModalCapture } = require("./diagnostics.cjs");
 const { verifyInstalledRawTrace, verifyTrace } = require("./guidepup-raw-trace-patch.cjs");
+const { createSafariAppleScript } = require("./safari-applescript.cjs");
 
 const exec = promisify(execFile);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -19,6 +20,8 @@ const timestamp = () => new Date().toISOString();
 function config(env = process.env) {
   const story = env.USWDS_AT_STORY || "http://127.0.0.1:8774/iframe.html?id=components-modal--test-teardown&viewMode=story";
   const driver = env.USWDS_SAFARI_DRIVER || "http://127.0.0.1:8773";
+  const browserTransport = env.USWDS_SAFARI_TRANSPORT || "webdriver";
+  requireEvidence(["webdriver", "applescript"].includes(browserTransport), "Unsupported Safari transport");
   for (const value of [story, driver]) {
     const url = new URL(value);
     requireEvidence(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname),
@@ -35,7 +38,7 @@ function config(env = process.env) {
   requireEvidence(!env.USWDS_GUIDEPUP_TRACE_MANIFEST || path.isAbsolute(env.USWDS_GUIDEPUP_TRACE_MANIFEST), "Raw trace manifest must be absolute");
   const outputDir = path.resolve(env.USWDS_AT_OUTPUT_DIR);
   requireEvidence(outputDir !== __dirname && !outputDir.startsWith(`${__dirname}${path.sep}`), "Run outputs must be outside the source directory");
-  return { story, driver, buildDir: path.resolve(env.USWDS_AT_BUILD_DIR), revision: env.USWDS_AT_REVISION,
+  return { story, driver, browserTransport, buildDir: path.resolve(env.USWDS_AT_BUILD_DIR), revision: env.USWDS_AT_REVISION,
     assets: path.resolve(env.GUIDEPUP_SCREEN_READERS_PATH), outputDir,
     dedicatedSession: env.USWDS_AT_DEDICATED_SESSION === "1",
     diagnostics: env.USWDS_AT_DIAGNOSTICS === "1",
@@ -129,7 +132,10 @@ async function preflight(cfg) {
   const guidepupCompatibilityPatch = await verifyInstalledStartup(cfg.dependencyRoot, cfg.patchManifest);
   const guidepupRawTracePatch = await verifyInstalledRawTrace(cfg.dependencyRoot, cfg.traceManifest);
   requireEvidence((await fs.stat(cfg.assets)).isDirectory(), "Guidepup profile directory is missing");
-  const status = await request(`${cfg.driver}/status`);
+  const status = cfg.browserTransport === "applescript" ?
+    { ready: true, transport: "safari-applescript", permissionProbePending: true,
+      version: await command("/usr/libexec/PlistBuddy", ["-c", "Print:CFBundleShortVersionString", "/Applications/Safari.app/Contents/Info.plist"]) } :
+    await request(`${cfg.driver}/status`);
   requireEvidence(status && status.ready !== false, "Safari driver is not ready for a new session");
   const build = await buildDigest(cfg.buildDir);
   const served = await verifyServedFiles(cfg, [cfg.story, new URL("/index.json", cfg.story).href]);
@@ -163,7 +169,12 @@ async function replay(cfg) {
   let voiceOverStarted = false;
   let voiceOverStartAttempted = false;
   let stage = "preflight";
-  const webdriver = (method, route, body) => request(`${cfg.driver}${route}`, method, body);
+  let ordinarySafari;
+  const webdriver = (method, route, body) => {
+    if (cfg.browserTransport !== "applescript") return request(`${cfg.driver}${route}`, method, body);
+    ordinarySafari ||= createSafariAppleScript({ runDir });
+    return ordinarySafari.request(method, route, body);
+  };
   const script = (source, args = []) => webdriver("POST", `/session/${session}/execute/sync`, { script: source, args });
   const recordAction = async (kind, description, action) => {
     const item = { kind, description, startedAt: timestamp() };
@@ -200,7 +211,8 @@ async function replay(cfg) {
         const screenshot = await webdriver("GET", `/session/${session}/screenshot`);
         const bytes = Buffer.from(screenshot, "base64");
         await fs.writeFile(path.join(runDir, `${id}.png`), bytes, { flag: "wx" });
-        observation.screenshot = { file: `${id}.png`, sha256: sha256(bytes) };
+        observation.screenshot = { file: `${id}.png`, sha256: sha256(bytes),
+          source: cfg.browserTransport === "applescript" ? "macos-desktop" : "safari-webdriver-viewport" };
       } catch (error) {
         // A diagnostic failure must not prevent classification of captured behavior.
         result.errors.push(errorRecord(error, `${id} screenshot`));
@@ -226,7 +238,7 @@ async function replay(cfg) {
       locale: Intl.DateTimeFormat().resolvedOptions().locale, profilePath: cfg.assets,
       profileDigest: (await buildDigest(cfg.assets)).sha256, activationMethod: "voiceover-keyboard-default-action", settings: "Guidepup pinned test profile; no runtime override",
       zoom: "not explicitly set or evaluated by this pilot", guidepupCompatibilityPatch: info.guidepupCompatibilityPatch,
-      guidepupRawTracePatch: info.guidepupRawTracePatch };
+      guidepupRawTracePatch: info.guidepupRawTracePatch, browserTransport: cfg.browserTransport };
     result.build = { ...info.build, revision: cfg.revision, source: "operator-declared SHA with local/HTTP byte checks", servedFilesVerified: false };
     if (info.control) {
       result.build.control = info.control;
@@ -243,7 +255,7 @@ async function replay(cfg) {
     result.cleanup.safariSession = "pending";
     result.environment.browser = created.capabilities;
     requireEvidence(created.capabilities?.browserName?.toLowerCase() === "safari", "Driver did not create actual Safari");
-    const requestedWindow = { x: 0, y: 0, width: 1280, height: 900 };
+    const requestedWindow = { x: 0, y: 32, width: 1280, height: 900 };
     result.environment.window = { requested: requestedWindow,
       actual: await webdriver("POST", `/session/${session}/window/rect`, requestedWindow) };
     requireEvidence(result.environment.window.actual.width === requestedWindow.width &&

@@ -1,6 +1,6 @@
 # Scoped Safari and VoiceOver modal regression
 
-This tooling promotes the earlier workspace pilot without modifying its code, dependencies, assets or historical results. It exercises one existing `components-modal--test-teardown` Storybook fixture with **actual Safari WebDriver and VoiceOver controlled by Guidepup 0.34.0**.
+This tooling promotes the earlier workspace pilot without modifying its code, dependencies, assets or historical results. It exercises one existing `components-modal--test-teardown` Storybook fixture with **actual Safari and VoiceOver controlled by Guidepup 0.34.0**. WebDriver remains the default transport; the hosted diagnostic experiment uses an ordinary Safari window through AppleScript, as described below.
 
 The test checks that VoiceOver can activate the modal after explicit setup, the open modal isolates the background, and application teardown restores a background heading that VoiceOver can reach and speak. It also checks that authored hidden content stays hidden. It does not test a complete keyboard journey, natural focus restoration, duplicate announcements, all modal content, browser zoom, mobile AT or Section 508 conformance.
 
@@ -16,7 +16,7 @@ The result records `commandCompleted: true` only when the command resolves, with
 
 Setup and assistance are explicit in the action log:
 
-1. Safari WebDriver loads the fixture; JavaScript places keyboard focus on its opener.
+1. Safari loads the fixture; JavaScript places keyboard focus on its opener.
 2. VoiceOver moves its cursor to that focused opener. This must produce an opener speech sentinel.
 3. VoiceOver activates the opener; no JavaScript click opens the modal.
 4. JavaScript invokes the fixture lifecycle teardown, then places focus on `Previous page action`.
@@ -88,7 +88,7 @@ For acceptance, preserve separate outputs for the current corrected and pinned b
 
 ### Experimental startup compatibility patch
 
-The hosted startup experiment uses Guidepup **0.34.0 plus a local compatibility patch**, not a new upstream release. `guidepup-startup-patch.cjs` accepts only the reviewed 0.34.0 startup file and inserts its existing native process/AppleScript readiness wait before activation. The later readiness check, capture rules, product assertions and cleanup checks remain required. This targets the observed `Application isn’t running. (-600)` launch failure; hosted run [35288143228](https://github.com/ryparker/aloud/actions/runs/35288143228) started VoiceOver and captured opener speech in both attempts. The full scenario remains inconclusive because modal-open speech was empty; broader startup reliability is not established.
+The hosted startup experiment uses Guidepup **0.34.0 plus a local compatibility patch**, not a new upstream release. `guidepup-startup-patch.cjs` accepts only the reviewed 0.34.0 startup file and inserts its existing native process/AppleScript readiness wait before activation. Patch version 2 also retries only activation errors reporting `Application isn’t running. (-600)` within the existing startup deadline. Process presence alone did not establish activation readiness in run [35293476597](https://github.com/ryparker/aloud/actions/runs/35293476597). Other activation errors still fail immediately; product scenarios are not retried. The later readiness check, capture rules, product assertions and cleanup checks remain required. This targets the observed `Application isn’t running. (-600)` launch failure; hosted run [35288143228](https://github.com/ryparker/aloud/actions/runs/35288143228) started VoiceOver and captured opener speech in both attempts. The full scenario remains inconclusive because modal-open speech was empty; broader startup reliability is not established.
 
 After installing dependencies on the disposable hosted macOS runner, invoke `node accessibility-ci/voiceover/guidepup-startup-patch.cjs --dependency-root "$USWDS_AT_DEPENDENCY_ROOT" --manifest "$CI_EVIDENCE/guidepup-startup-patch.json"`, then set `USWDS_GUIDEPUP_PATCH_MANIFEST` to that absolute manifest path for replay/calibration. The manifest identifies the patch and both source hashes. Preflight checks the installed bytes against that manifest and records `environment.guidepupCompatibilityPatch`. Without a manifest, only the original pinned startup bytes are accepted. Installation refuses unknown versions, changed source or a second application; it does not change local developer tooling.
 
@@ -97,3 +97,11 @@ After installing dependencies on the disposable hosted macOS runner, invoke `nod
 The hosted diagnostic experiment installs an exact-byte guarded Guidepup 0.34.0 native-read trace patch and records its manifest. Each fresh replay writes bounded raw stdout, stderr and native error metadata before SDK trimming or normalization. A sticky trace failure, truncated trace or malformed trace prevents a passing result. This observes the existing reads; it does not change the expected captions.
 
 With `USWDS_AT_DIAGNOSTICS=1`, an empty modal-open capture is saved before any new commands. Separate diagnostic records then collect passive native phrase/cursor reads, an explicit describe-keyboard-focus command, and plain-focus/native-dialog controls. Requested output cannot replace the original activation capture. Probe progress, full-desktop screenshots and exact control HTML are retained. The controller allows up to five minutes per attempt in this mode and preserves all failures; normal attempts remain bounded at two minutes. Safari uses a verified 1280 by 900 outer window for comparisons.
+
+### Ordinary Safari transport experiment
+
+Set `USWDS_SAFARI_TRANSPORT=applescript` only on the prepared disposable GitHub-hosted macOS runner. This adapter uses Safari's native AppleScript interface to create an ordinary browser window, verify JavaScript execution with a fresh nonce, navigate to the loopback fixture, and run the same DOM observations and setup assistance. The workflow enables JavaScript from Apple Events on that disposable runner. A preference value alone does not establish permission: the actual nonce probe must succeed before the scenario starts. This transport does not require a Safari WebDriver process or remote-automation permission.
+
+Each result records the actual installed Safari version, the explicit experimental transport, owned window identifier, verified JavaScript permission, and full-desktop screenshot provenance. Cleanup closes only the newly created window. Production execution refuses non-hosted or non-dedicated desktops. Preflight reads metadata without opening a window, and leaves the permission probe pending.
+
+This comparison tests whether the observed native-focus mismatch also occurs in ordinary Safari. Apple's [WebDriver documentation](https://developer.apple.com/documentation/safari-developer-tools/webdriver/) describes the automation window's interaction glass pane, but the existing evidence does not establish it as the cause. Neither a transport change nor requested diagnostic speech can substitute for the original required AT captures. Corrected/broken calibration and ten corrected runs remain required.

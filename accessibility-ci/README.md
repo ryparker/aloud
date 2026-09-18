@@ -31,7 +31,9 @@ Hosted startup currently tests an explicit compatibility patch to Guidepup 0.34.
 
 [Run 35288889533](https://github.com/ryparker/aloud/actions/runs/35288889533), tooling commit `3819582b847d48f3062503838bf8687e7991fa36`, tested native VO-Space activation in a fresh replay. It reproduced the same empty modal-open capture in both fixtures. Startup, opener capture, activation and cleanup passed again; both scenario results remained inconclusive. The new method is recorded as `voiceover-keyboard-default-action`. All earlier observations are retained.
 
-The next investigation must distinguish native modal speech from the caption interface. Preserve the original empty activation observation. Any explicit re-read belongs in a separate diagnostic record and cannot substitute for an automatic announcement or make the original result pass.
+[Run 35293476597](https://github.com/ryparker/aloud/actions/runs/35293476597) retained raw native reads. The broken attempt returned only newlines for all 100 modal phrase reads, with no native errors; the corrected attempt failed startup. [Run 35294123940](https://github.com/ryparker/aloud/actions/runs/35294123940) started both readers and executed the separate diagnostic commands. Original modal captures remained empty. Requested native keyboard-focus speech identified the opener while DOM focus identified the modal button. Plain-focus and native-dialog controls did not establish their opener positions, so they do not provide a valid dialog comparison.
+
+The next hosted experiment uses an ordinary Safari window through its AppleScript interface. A nonce probe verifies actual JavaScript permission, and results explicitly identify this transport and its full-desktop screenshots. The startup patch also bounds retries of only the observed activation error `(-600)` within the existing deadline. These changes test capture and startup hypotheses without changing the acceptance contract. See the [transport details](voiceover/README.md#ordinary-safari-transport-experiment). Any requested re-read remains separate and cannot replace automatic activation speech.
 
 ## Local checks
 
@@ -43,4 +45,4 @@ These checks run without a desktop, browser or installed screen reader. Real exe
 
 The experiment is informational until real corrected/broken controls, repeated execution and independent expectation review establish its scope and reliability. It does not claim Section 508 conformance or satisfy all of USWDS issue #6925.
 
-The optional full-desktop diagnostic used an incorrect executable path in the recorded runs. The workflow now uses `/usr/sbin/screencapture`; executable presence and shell syntax were checked locally without capturing a desktop. This diagnostic-only correction has not been rerun on hosted CI. Existing per-step Safari screenshots were captured successfully.
+Full-desktop diagnostics now use `/usr/sbin/screencapture` and were captured successfully in runs 35293476597 and 35294123940. Earlier missing desktop captures remain recorded as missing evidence.

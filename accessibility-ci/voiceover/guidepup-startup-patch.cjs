@@ -3,19 +3,49 @@ const path = require("node:path");
 const { createRequire } = require("node:module");
 const { GUIDE_VERSION, sha256, requireEvidence } = require("./evidence.cjs");
 
-const PATCH_ID = "guidepup-0.34.0-wait-before-voiceover-activation-v1";
+const PATCH_ID = "guidepup-0.34.0-wait-before-voiceover-activation-v2";
 const RELATIVE_PATH = "lib/macOS/VoiceOver/start.js";
 const ORIGINAL_SHA256 = "c51a16b693020013cab9862942df951d70b388ea2e1bdbb2a9564602abddde44";
-const PATCHED_SHA256 = "34d3047fa3a8124a866356c6340b30ed7f3d1b397e34bf41d22ec74ea4e39e29";
+const PATCHED_SHA256 = "5ffdfbec6af42f6a38d478875ee10776e53b9c0c6dfe452028e1867358f31d73";
 const MANIFEST_FIELDS = Object.freeze({ schemaVersion: 1, id: PATCH_ID, packageName: "@guidepup/guidepup",
   packageVersion: GUIDE_VERSION, relativePath: RELATIVE_PATH, originalSha256: ORIGINAL_SHA256, patchedSha256: PATCHED_SHA256 });
 
+// Injected into the dependency startup module; native test commands never use this retry loop.
+async function waitForVoiceOverActivation(options) {
+    const timeout = options?.timeout ?? 10000;
+    if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("VoiceOver activation timeout must be finite and positive");
+    const deadline = performance.now() + timeout;
+    let lastError;
+    for (let attempt = 1; ; attempt += 1) {
+        const remaining = Math.ceil(deadline - performance.now());
+        if (remaining <= 0) throw lastError || new Error("VoiceOver activation deadline expired");
+        try {
+            await (0, activate_1.activate)(Applications_1.Applications.VoiceOver, { ...options, timeout: remaining, retries: 1 });
+            if (performance.now() > deadline) throw new Error("VoiceOver activation completed after its deadline");
+            return;
+        }
+        catch (error) {
+            if (!/Application isn['’]t running/.test(error?.message || "") || !error.message.includes("(-600)")) throw error;
+            lastError = error;
+            const remainingMs = deadline - performance.now();
+            debug("VoiceOver activation not ready", { attempt, error: error.message, remainingMs: Math.max(0, remainingMs) });
+            if (remainingMs <= 0) throw error;
+            await (0, delay_1.delay)(Math.min(200, remainingMs));
+        }
+    }
+}
+
+function transformSource(source) {
+  return source.replace('const activate_1 = require("../activate");',
+    'const activate_1 = require("../activate");\nconst waitForRunning_1 = require("./waitForRunning");')
+    .replace('async function start(options) {', `${waitForVoiceOverActivation.toString()}\nasync function start(options) {`)
+    .replace('    await (0, activate_1.activate)(Applications_1.Applications.VoiceOver, options);',
+      '    await (0, waitForRunning_1.waitForRunning)(options);\n    await waitForVoiceOverActivation(options);');
+}
+
 function patchSource(source) {
   requireEvidence(sha256(source) === ORIGINAL_SHA256, "Guidepup startup source does not match the pinned original bytes");
-  const patched = source.replace('const activate_1 = require("../activate");',
-    'const activate_1 = require("../activate");\nconst waitForRunning_1 = require("./waitForRunning");')
-    .replace('    await (0, activate_1.activate)(Applications_1.Applications.VoiceOver, options);',
-      '    await (0, waitForRunning_1.waitForRunning)(options);\n    await (0, activate_1.activate)(Applications_1.Applications.VoiceOver, options);');
+  const patched = transformSource(source);
   requireEvidence(sha256(patched) === PATCHED_SHA256, "Guidepup startup patch did not produce the reviewed bytes");
   return patched;
 }
@@ -39,7 +69,7 @@ async function applyPatch(dependencyRoot, manifestPath) {
   try { await fs.lstat(manifestPath); throw new Error("Startup patch manifest already exists"); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
   const manifest = { ...MANIFEST_FIELDS, appliedAt: new Date().toISOString(),
-    change: "Wait for the native VoiceOver process and AppleScript running state before activation. Existing readiness, capture and behavior checks remain required.",
+    change: "Wait for the native VoiceOver process and AppleScript running state, then retry only startup activation errors reporting application not running (-600), at 200 millisecond intervals within one activation timeout. Log each failed activation attempt. Existing native commands, capture and behavior checks remain required.",
     status: "experimental-compatibility-patch", upstreamRelease: false };
   const temporary = `${target}.guidepup-startup-patch.tmp`;
   await fs.writeFile(temporary, patched, { flag: "wx", mode: (await fs.stat(target)).mode });

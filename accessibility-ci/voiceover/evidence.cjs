@@ -134,7 +134,7 @@ function evaluateResult(result) {
   check(result.mode === "real-at", "Only an actual AT execution can produce a passing replay");
   check(result.environment?.guidepup === GUIDE_VERSION, "Guidepup version is not pinned");
   check(result.environment?.platform === "darwin", "Expected macOS execution");
-  check(result.environment?.browser?.browserName?.toLowerCase() === "safari", "Expected actual Safari WebDriver");
+  check(result.environment?.browser?.browserName?.toLowerCase() === "safari", "Expected actual Safari");
   check(typeof result.environment?.browser?.browserVersion === "string" && result.environment.browser.browserVersion.length > 0,
     "Browser version missing");
   check(typeof result.environment?.voiceOver === "string" && result.environment.voiceOver.length > 0, "VoiceOver version missing");
